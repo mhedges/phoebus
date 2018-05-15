@@ -7,10 +7,15 @@
  ******************************************************************************/
 package org.phoebus.pv.ca;
 
+import java.util.regex.Pattern;
+
 import org.phoebus.vtype.VType;
 
+import gov.aps.jca.Channel;
 import gov.aps.jca.dbr.DBR;
 import gov.aps.jca.dbr.DBRType;
+import gov.aps.jca.dbr.DBR_CTRL_Double;
+import gov.aps.jca.dbr.DBR_LABELS_Enum;
 import gov.aps.jca.dbr.DBR_STS_Enum;
 import gov.aps.jca.dbr.DBR_String;
 import gov.aps.jca.dbr.DBR_TIME_Byte;
@@ -19,6 +24,7 @@ import gov.aps.jca.dbr.DBR_TIME_Enum;
 import gov.aps.jca.dbr.DBR_TIME_Float;
 import gov.aps.jca.dbr.DBR_TIME_Int;
 import gov.aps.jca.dbr.DBR_TIME_Short;
+import gov.aps.jca.dbr.DBR_TIME_String;
 import gov.aps.jca.dbr.GR;
 import gov.aps.jca.dbr.LABELS;
 
@@ -136,5 +142,44 @@ public class DBRHelper
         }
 
         throw new Exception("Cannot handle " + dbr.getClass().getName());
+    }
+    
+    static Pattern rtypeStringPattern = Pattern.compile(".+\\.RTYP.*");
+
+    public static DBRType valueTypeFor(Channel channel) {
+        DBRType type = channel.getFieldType();
+
+        if (type.isBYTE()) {
+            return DBR_TIME_Byte.TYPE;
+        } else if (type.isSHORT()) {
+            return DBR_TIME_Short.TYPE;
+        } else if (type.isINT()) {
+            return DBR_TIME_Int.TYPE;
+        } else if (type.isFLOAT()) {
+            return DBR_TIME_Float.TYPE;
+        } else if (type.isDOUBLE()) {
+            return DBR_TIME_Double.TYPE;
+        } else if (type.isENUM()) {
+            return DBR_TIME_Enum.TYPE;
+        } else if (type.isSTRING()) {
+            if (rtypeStringPattern.matcher(channel.getName()).matches()) {
+                return DBR_String.TYPE;
+            }
+            return DBR_TIME_String.TYPE;
+        }
+
+        throw new IllegalArgumentException("Unsupported type " + type);
+    }
+    
+    public static DBRType metadataFor(Channel channel) {
+        DBRType type = channel.getFieldType();
+
+        if (type.isBYTE() || type.isSHORT() || type.isINT() || type.isFLOAT() || type.isDOUBLE())
+            return DBR_CTRL_Double.TYPE;
+
+        if (type.isENUM())
+            return DBR_LABELS_Enum.TYPE;
+
+        return null;
     }
 }

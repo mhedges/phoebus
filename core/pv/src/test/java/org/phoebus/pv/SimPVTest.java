@@ -7,16 +7,17 @@
  ******************************************************************************/
 package org.phoebus.pv;
 
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
-import org.phoebus.vtype.VType;
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.disposables.Disposable;
 
 /** @author Kay Kasemir */
 @SuppressWarnings("nls")
-public class SimPVTest
+public class SimPVTest extends ThreadHelper
 {
-    @Test
+/*    @Test
     public void demoSine() throws Exception
     {
         final CountDownLatch done = new CountDownLatch(3);
@@ -37,5 +38,27 @@ public class SimPVTest
         done.await();
         pv.removeListener(listener);
         PVPool.releasePV(pv);
+    }*/
+    
+    @Test
+    public void demoRxSineBuffer() throws Exception
+    {
+    	final PV pv = PVPool.getPV("ca://testpv");
+		prepareLock(3);
+		prepareElapsedTime();
+
+		Disposable disposable = pv.onValueEvent(BackpressureStrategy.BUFFER)
+			.buffer(5L, TimeUnit.SECONDS)
+			.subscribe(
+				list -> {
+					System.out.println(attachWithElapsedTime(list.toString()));
+					releaseLock();
+				},
+				throwable -> releaseLock(),
+				this::releaseLock);
+		
+		waitForLock();
+		disposable.dispose();
+    	PVPool.releasePV(pv);
     }
 }

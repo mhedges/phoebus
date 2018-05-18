@@ -133,7 +133,7 @@ public class PVList extends BorderPane
             for (ReferencedEntry<PV> ref : refs)
             {
                 final PV pv = ref.getEntry();
-                items.add(new PVInfo(pv.getName(), pv.read() != null, ref.getReferences()));
+                items.add(new PVInfo(pv.getName(), pv.onSingleValueEvent().blockingGet() != null, ref.getReferences()));
             }
 
             // Update UI

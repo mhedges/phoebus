@@ -31,11 +31,11 @@ public abstract class PV {
 
 	abstract public Flowable<VType> onValueEvent(BackpressureStrategy backpressureStrategy);
 
-/*	abstract public Single<VType> onSingleValueEvent();
+	abstract public Single<VType> onSingleValueEvent();
 	
-	abstract public Completable setValueAsync(VType vType);
+	abstract public Completable setValueAsync(Object object);
 	
-	abstract public void setValue(VType vType);*/
+	abstract public void setValue(Object object) throws Exception;
 	
 	abstract public Flowable<Boolean> onAccessRightsEvent(BackpressureStrategy backpressureStrategy);
 	

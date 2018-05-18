@@ -36,6 +36,9 @@ import org.phoebus.vtype.VType;
 import org.phoebus.vtype.ValueFactory;
 import org.phoebus.vtype.ValueUtil;
 
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.disposables.Disposable;
+
 
 /** {@link Device} that is connected to a Process Variable,
  *  supporting read and write access to that PV.
@@ -65,6 +68,10 @@ public class PVDevice extends Device
      *  SYNC on this
      */
     private PV pv;
+    
+    private volatile Disposable value_flow;
+    
+    private volatile Disposable connection_flow;
 
     final private PVListener pv_listener = new PVListener()
     {
@@ -124,8 +131,24 @@ public class PVDevice extends Device
         synchronized (this)
         {
             pv = PVPool.getPV(getName());
+            value_flow = pv.onValueEvent(BackpressureStrategy.LATEST).subscribe(value -> {
+            	logger.log(Level.FINE,
+                        "PV {0} received {1}", new Object[] { getName(), value });
+                    synchronized (PVDevice.this)
+                    {
+                        value = wrapReceivedValue(value);
+                    }
+                    fireDeviceUpdate();
+            });
+            connection_flow = pv.onConnectionEvent(BackpressureStrategy.LATEST).subscribe(connection -> {
+            	if (connection == false) {
+            	    value = getDisconnectedValue();
+                    logger.log(Level.WARNING, "PV " + getName() + " disconnected");
+            	}
+                fireDeviceUpdate();
+            });
         }
-        pv.addListener(pv_listener);
+        //pv.addListener(pv_listener);
     }
 
     /** {@inheritDoc} */
@@ -160,8 +183,10 @@ public class PVDevice extends Device
         synchronized (this)
         {
             copy = pv;
+            value_flow.dispose();
+            connection_flow.dispose();
         }
-        copy.removeListener(pv_listener);
+        //copy.removeListener(pv_listener);
         PVPool.releasePV(copy);
         synchronized (this)
         {
@@ -208,7 +233,7 @@ public class PVDevice extends Device
         }
         try
         {
-            final Future<VType> read_result = pv.asyncRead();
+            final Future<VType> read_result = pv.onSingleValueEvent().toFuture();
             final long millisec = getMillisecs(timeout);
             final VType received_value = (millisec > 0)
                 ? read_result.get(millisec, TimeUnit.MILLISECONDS)
@@ -277,7 +302,7 @@ public class PVDevice extends Device
             {
                 pv = Objects.requireNonNull(this.pv, "PV not ready");
             }
-            pv.write(value);
+            pv.setValue(value);
         }
         catch (Exception ex)
         {
@@ -306,7 +331,7 @@ public class PVDevice extends Device
             {
                 pv = this.pv;
             }
-            final Future<?> write_result = pv.asyncWrite(actual);
+            final Future<?> write_result = pv.setValueAsync(actual).andThen(pv.onSingleValueEvent()).toFuture();
             if (millisec > 0)
                 write_result.get(millisec, TimeUnit.MILLISECONDS);
             else

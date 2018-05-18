@@ -15,6 +15,11 @@ import org.phoebus.vtype.VType;
 import org.phoebus.vtype.ValueFactory;
 import org.phoebus.vtype.ValueUtil;
 
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Flowable;
+import io.reactivex.Single;
+import io.reactivex.processors.PublishProcessor;
+
 /** Base for simulated array PVs
  *
  *  <p>Value is of type VDoubleArray.
@@ -30,6 +35,8 @@ abstract public class SimulatedDoubleArrayPV extends SimulatedPV
 {
     /** Format for Display */
     private final static NumberFormat format = ValueUtil.getDefaultNumberFormat();
+    
+    private final PublishProcessor<VType> publishProcessor = PublishProcessor.create();
 
     /** Display for value updates, also defines warning/alarm range */
     protected Display display;
@@ -67,11 +74,21 @@ abstract public class SimulatedDoubleArrayPV extends SimulatedPV
                                                          ValueFactory.alarmNone(),
                                                          ValueFactory.timeNow(),
                                                          display);
-        notifyListenersOfValue(vtype);
+        publishProcessor.onNext(vtype);
     }
 
     /** Invoked for periodic update.
      *  @return Current value of the simulated PV
      */
     abstract public double[] compute();
+    
+	@Override
+	public Flowable<VType> onValueEvent(BackpressureStrategy backpressureStrategy) {
+		return publishProcessor.onBackpressureLatest();
+	}
+	
+	@Override
+	public Single<VType> onSingleValueEvent() {
+		return publishProcessor.onBackpressureLatest().lastOrError();
+	}
 }

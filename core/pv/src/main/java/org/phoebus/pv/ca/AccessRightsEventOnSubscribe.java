@@ -1,7 +1,5 @@
 package org.phoebus.pv.ca;
 
-import org.phoebus.vtype.VType;
-
 import gov.aps.jca.Channel;
 import io.reactivex.FlowableEmitter;
 import io.reactivex.FlowableOnSubscribe;

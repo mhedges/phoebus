@@ -9,6 +9,7 @@ package org.phoebus.pv.loc;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 
 import org.phoebus.pv.PV;
@@ -18,6 +19,13 @@ import org.phoebus.vtype.VDoubleArray;
 import org.phoebus.vtype.VString;
 import org.phoebus.vtype.VStringArray;
 import org.phoebus.vtype.VType;
+
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Completable;
+import io.reactivex.Flowable;
+import io.reactivex.Single;
+import io.reactivex.processors.PublishProcessor;
+import io.reactivex.subjects.PublishSubject;
 
 /** Local Process Variable
  *
@@ -40,6 +48,7 @@ public class LocalPV extends PV
 {
     private volatile Class<? extends VType> type;
     private final List<String> initial_value;
+    private final PublishProcessor<VType> publishProcessor = PublishProcessor.create();
 
     protected LocalPV(final String actual_name, final Class<? extends VType> type, final List<String> initial_value) throws Exception
     {
@@ -48,7 +57,7 @@ public class LocalPV extends PV
         this.initial_value = initial_value;
 
         // Set initial value
-        notifyListenersOfValue(ValueHelper.getInitialValue(initial_value, type));
+        publishProcessor.onNext(ValueHelper.getInitialValue(initial_value, type));
     }
 
     protected void checkInitializer(final Class<? extends VType> type, final List<String> initial_value)
@@ -77,18 +86,30 @@ public class LocalPV extends PV
     }
 
     @Override
-    public void write(final Object new_value) throws Exception
+    protected void close()
     {
-        if (new_value == null)
+        super.close();
+        LocalPVFactory.releasePV(this);
+    }
+
+	@Override
+	public Flowable<VType> onValueEvent(BackpressureStrategy backpressureStrategy) {
+		return publishProcessor.onBackpressureLatest();
+	}
+
+	@Override
+	public void setValue(Object object) throws Exception
+	{
+        if (object == null)
             throw new Exception(getName() + " got null");
 
         try
         {
-            final VType last_value = read();
+            final VType last_value = publishProcessor.last(ValueHelper.getInitialValue(initial_value, type)).blockingGet();
             final boolean change_from_double = initial_value == null  &&
                                                last_value instanceof VDouble  &&
                                                ((VDouble)last_value).getAlarmSeverity() == AlarmSeverity.UNDEFINED;
-            final VType value = ValueHelper.adapt(new_value, type, last_value, change_from_double);
+            final VType value = ValueHelper.adapt(object, type, last_value, change_from_double);
             if (change_from_double  &&  ! type.isInstance(value))
             {
                 final Class<? extends VType> new_type;
@@ -101,20 +122,34 @@ public class LocalPV extends PV
                 logger.log(Level.WARNING, "PV " + getName() + " changed from " + type.getSimpleName() + " to " + new_type.getSimpleName());
                 type = new_type;
             }
-            notifyListenersOfValue(value);
+            publishProcessor.onNext(value);
         }
         catch (Exception ex)
         {
-            if (new_value != null  &&  new_value.getClass().isArray())
-                throw new Exception("Failed to write " + new_value.getClass().getSimpleName() + " to " + getName(), ex);
-            throw new Exception("Failed to write '" + new_value + "' to " + this, ex);
+            if (object != null  &&  object.getClass().isArray())
+                throw new Exception("Failed to write " + object.getClass().getSimpleName() + " to " + getName(), ex);
+            throw new Exception("Failed to write '" + object + "' to " + this, ex);
         }
-     }
+	}
 
-    @Override
-    protected void close()
-    {
-        super.close();
-        LocalPVFactory.releasePV(this);
-    }
+	@Override
+	public Flowable<Boolean> onAccessRightsEvent(BackpressureStrategy backpressureStrategy) {
+		return Flowable.fromArray(false);
+	}
+
+	@Override
+	public Flowable<Boolean> onConnectionEvent(BackpressureStrategy backpressureStrategy) {
+		return Flowable.fromArray(true);
+	}
+
+	@Override
+	public Single<VType> onSingleValueEvent() {
+		return publishProcessor.onBackpressureLatest().lastOrError();
+	}
+
+	@Override
+	public Completable setValueAsync(Object object) {
+		return Completable.fromAction(()->{setValue(object);});
+	}
+
 }

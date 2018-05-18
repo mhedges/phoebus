@@ -20,6 +20,8 @@ import org.phoebus.vtype.VType;
 import org.phoebus.vtype.ValueFormat;
 import org.phoebus.vtype.ValueUtil;
 
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.disposables.Disposable;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.Button;
@@ -73,21 +75,14 @@ public class ProbeController {
     }
 
     private PV pv;
+    
+    private Disposable value_flow;
 
     private final UpdateThrottle throttle = new UpdateThrottle(100, TimeUnit.MILLISECONDS, this::update);
 
-    private final PVListener pv_listener = new PVListener()
-    {
-        @Override
-        public void valueChanged(final PV pv, final VType value)
-        {
-            throttle.trigger();
-        }
-    };
-
     private void update()
     {
-        final VType value = pv.read();
+        final VType value = pv.onSingleValueEvent().blockingGet();
         Platform.runLater(() ->
         {
             setValue(value);
@@ -98,8 +93,8 @@ public class ProbeController {
     @FXML
     private void search() {
         // The PV is different, so disconnect and reset the visuals
-        if (pv != null) {
-            pv.removeListener(pv_listener);
+        if (value_flow != null) {
+        	value_flow.dispose();
             PVPool.releasePV(pv);
             pv = null;
         }
@@ -113,7 +108,9 @@ public class ProbeController {
         {
             ex.printStackTrace();
         }
-        pv.addListener(pv_listener);
+        value_flow = pv.onValueEvent(BackpressureStrategy.LATEST).subscribe(value -> {
+        	throttle.trigger();
+        });
     }
 
     private void setTime(Time time) {

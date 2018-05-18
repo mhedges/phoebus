@@ -10,6 +10,11 @@ package org.phoebus.pv.sim;
 import java.util.List;
 
 import org.phoebus.pv.PV;
+import org.phoebus.vtype.VType;
+
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Flowable;
+import io.reactivex.processors.PublishProcessor;
 
 /** Simulated PV with random value, intermittently connected
  *  @author Kay Kasemir, based on similar code in diirt
@@ -18,6 +23,7 @@ import org.phoebus.pv.PV;
 public class IntermittentPV extends SimulatedDoublePV
 {
     private boolean connected = true;
+    private final PublishProcessor<Boolean> publishProcessor = PublishProcessor.create();
 
     public static PV forParameters(final String name, final List<Double> parameters) throws Exception
     {
@@ -48,7 +54,7 @@ public class IntermittentPV extends SimulatedDoublePV
         if (connected)
             super.update();
         else
-            notifyListenersOfDisconnect();
+        	publishProcessor.onNext(connected);
         connected = ! connected;
     }
 
@@ -57,4 +63,9 @@ public class IntermittentPV extends SimulatedDoublePV
     {
         return min + Math.random() * range;
     }
+    
+	@Override
+	public Flowable<Boolean> onConnectionEvent(BackpressureStrategy backpressureStrategy) {
+		return publishProcessor.onBackpressureLatest();
+	}
 }

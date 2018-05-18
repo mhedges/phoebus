@@ -11,7 +11,14 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.phoebus.pv.PV;
+import org.phoebus.vtype.VType;
 import org.phoebus.vtype.ValueFactory;
+
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Completable;
+import io.reactivex.Flowable;
+import io.reactivex.Single;
+import io.reactivex.processors.PublishProcessor;
 
 /** Simulated PV for flipflop
  *  @author Kay Kasemir, based on similar code in org.csstudio.utility.pv and diirt
@@ -21,6 +28,7 @@ public class FlipFlopPV extends SimulatedPV
 {
     private static final List<String> labels = Arrays.asList(Boolean.FALSE.toString(), Boolean.TRUE.toString());
     private int value = 0;
+    private final PublishProcessor<VType> publishProcessor = PublishProcessor.create();
 
     public static PV forParameters(final String name, final List<Double> parameters) throws Exception
     {
@@ -41,6 +49,16 @@ public class FlipFlopPV extends SimulatedPV
     protected void update()
     {
         value = 1 - value;
-        notifyListenersOfValue(ValueFactory.newVEnum(value, labels, ValueFactory.alarmNone(), ValueFactory.timeNow()));
+        publishProcessor.onNext(ValueFactory.newVEnum(value, labels, ValueFactory.alarmNone(), ValueFactory.timeNow()));
     }
+
+	@Override
+	public Flowable<VType> onValueEvent(BackpressureStrategy backpressureStrategy) {
+		return publishProcessor.onBackpressureLatest();
+	}
+	
+	@Override
+	public Single<VType> onSingleValueEvent() {
+		return publishProcessor.onBackpressureLatest().lastOrError();
+	}
 }

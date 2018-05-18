@@ -28,6 +28,9 @@ import org.phoebus.vtype.Alarm;
 import org.phoebus.vtype.AlarmSeverity;
 import org.phoebus.vtype.VType;
 
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.disposables.Disposable;
+
 /** Alarm tree leaf
  *
  *  <p>Has PV,
@@ -37,9 +40,11 @@ import org.phoebus.vtype.VType;
  *  @author Kay Kasemir
  */
 @SuppressWarnings("nls")
-public class AlarmServerPV extends AlarmTreeItem<AlarmState> implements AlarmTreeLeaf, PVListener
+public class AlarmServerPV extends AlarmTreeItem<AlarmState> implements AlarmTreeLeaf
 {
     private final AtomicReference<PV> pv = new AtomicReference<>();
+    private final AtomicReference<Disposable> value_flow = new AtomicReference<>();
+    private final AtomicReference<Disposable> connection_flow = new AtomicReference<>();
     private final ServerModel model;
     private volatile String description = "";
     private volatile AlarmState current;
@@ -165,9 +170,44 @@ public class AlarmServerPV extends AlarmTreeItem<AlarmState> implements AlarmTre
             final PV new_pv = PVPool.getPV(getName());
             logger.log(Level.FINE, "Start " + new_pv.getName());
             final PV previous = pv.getAndSet(new_pv);
-            if (previous != null)
+            final Disposable new_value_flow = new_pv.onValueEvent(BackpressureStrategy.ERROR).subscribe(value -> {
+            	logger.log(Level.FINE, getPathName() + " = " + value);
+
+                final SeverityLevel old_severity = getState().severity;
+
+                // TODO Decouple handling of received value from PV thread
+                // TODO Use actual alarm logic
+                // TODO Send updates for state up to the alarm tree root
+                final ClientState new_state;
+                if (value == null)
+                    new_state = new ClientState(SeverityLevel.UNDEFINED, "disconnected", null, Instant.now(), SeverityLevel.UNDEFINED, "disconnected");
+                else if (value instanceof Alarm)
+                {
+                    final Alarm alarm = (Alarm) value;
+                    final SeverityLevel severity = alarm.getAlarmSeverity() == AlarmSeverity.NONE
+                                                 ? SeverityLevel.OK
+                                                 : SeverityLevel.values()[SeverityLevel.UNDEFINED_ACK.ordinal() + alarm.getAlarmSeverity().ordinal()];
+                    new_state = new ClientState(severity, alarm.getAlarmName(), value.toString(), Instant.now(), severity, alarm.getAlarmName());
+                }
+                else
+                    new_state = new ClientState(SeverityLevel.UNDEFINED, "undefined", null, Instant.now(), SeverityLevel.UNDEFINED, "undefined");
+                setState(new_state);
+                model.sentStateUpdate(getPathName(), new_state);
+
+                // Whenever logic computes new state, maximize up parent tree
+                if (new_state.severity != old_severity)
+                    getParent().maximizeSeverity();
+            });
+            final Disposable previous_value_flow = value_flow.getAndSet(new_value_flow);
+            final Disposable new_connection_flow = new_pv.onConnectionEvent(BackpressureStrategy.ERROR).subscribe(connection -> {
+            	if(connection == false) {
+            		logger.log(Level.FINE, getPathName() + " disconnected");
+                    //valueChanged(pv, null);
+            	}
+            });
+            final Disposable previous_connection_flow = connection_flow.getAndSet(new_connection_flow);
+            if (previous != null || previous_value_flow != null || previous_connection_flow != null)
                 throw new IllegalStateException("Alarm tree leaf " + getPathName() + " already started for " + previous);
-            new_pv.addListener(this);
         }
         catch (Throwable ex)
         {
@@ -183,9 +223,12 @@ public class AlarmServerPV extends AlarmTreeItem<AlarmState> implements AlarmTre
         try
         {
             final PV the_pv = pv.getAndSet(null);
-            if (the_pv == null)
+            final Disposable the_value_flow = value_flow.getAndSet(null);
+            final Disposable the_connection_flow = connection_flow.getAndSet(null);
+            if (the_pv == null || the_value_flow == null || the_connection_flow == null)
                 throw new IllegalStateException("Alarm tree leaf " + getPathName() + " has no PV");
-            the_pv.removeListener(this);
+            the_value_flow.dispose();
+            the_connection_flow.dispose();
             PVPool.releasePV(the_pv);
             logger.log(Level.FINE, "Stop " + the_pv.getName());
         }
@@ -194,45 +237,5 @@ public class AlarmServerPV extends AlarmTreeItem<AlarmState> implements AlarmTre
             logger.log(Level.WARNING, "Cannot create PV for " + getPathName(), ex);
             return;
         }
-    }
-
-    // PVListener
-    @Override
-    public void valueChanged(final PV pv, final VType value)
-    {
-        logger.log(Level.FINE, getPathName() + " = " + value);
-
-        final SeverityLevel old_severity = getState().severity;
-
-        // TODO Decouple handling of received value from PV thread
-        // TODO Use actual alarm logic
-        // TODO Send updates for state up to the alarm tree root
-        final ClientState new_state;
-        if (value == null)
-            new_state = new ClientState(SeverityLevel.UNDEFINED, "disconnected", null, Instant.now(), SeverityLevel.UNDEFINED, "disconnected");
-        else if (value instanceof Alarm)
-        {
-            final Alarm alarm = (Alarm) value;
-            final SeverityLevel severity = alarm.getAlarmSeverity() == AlarmSeverity.NONE
-                                         ? SeverityLevel.OK
-                                         : SeverityLevel.values()[SeverityLevel.UNDEFINED_ACK.ordinal() + alarm.getAlarmSeverity().ordinal()];
-            new_state = new ClientState(severity, alarm.getAlarmName(), value.toString(), Instant.now(), severity, alarm.getAlarmName());
-        }
-        else
-            new_state = new ClientState(SeverityLevel.UNDEFINED, "undefined", null, Instant.now(), SeverityLevel.UNDEFINED, "undefined");
-        setState(new_state);
-        model.sentStateUpdate(getPathName(), new_state);
-
-        // Whenever logic computes new state, maximize up parent tree
-        if (new_state.severity != old_severity)
-            getParent().maximizeSeverity();
-    }
-
-    // PVListener
-    @Override
-    public void disconnected(final PV pv)
-    {
-        logger.log(Level.FINE, getPathName() + " disconnected");
-        valueChanged(pv, null);
     }
 }

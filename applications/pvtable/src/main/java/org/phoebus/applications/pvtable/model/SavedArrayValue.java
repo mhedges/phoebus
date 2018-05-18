@@ -124,7 +124,7 @@ public class SavedArrayValue extends SavedValue
     public void restore(final PV pv, long completion_timeout_secs) throws Exception
     {
         // Determine what type to write based on current value of the PV
-        final VType pv_type = pv.read();
+        final VType pv_type = pv.onSingleValueEvent().blockingGet();
         if ((pv_type instanceof VDoubleArray) || (pv_type instanceof VFloatArray))
         {   // Write any floating point as double
             final int N = saved_value.size();
@@ -133,9 +133,9 @@ public class SavedArrayValue extends SavedValue
                 data[i] = getSavedNumber(saved_value.get(i)).doubleValue();
 
             if (completion_timeout_secs > 0)
-                pv.asyncWrite(data).get(completion_timeout_secs, TimeUnit.SECONDS);
+                pv.setValueAsync(data).andThen(pv.onSingleValueEvent()).toFuture().get(completion_timeout_secs, TimeUnit.SECONDS);
             else
-                pv.write(data);
+                pv.setValue(data);
         }
         else if (pv_type instanceof VNumberArray || pv_type instanceof VEnumArray)
         {   // Write any non-floating  number as int.
@@ -145,9 +145,9 @@ public class SavedArrayValue extends SavedValue
             for (int i = 0; i < N; ++i)
                 data[i] = getSavedNumber(saved_value.get(i)).intValue();
             if (completion_timeout_secs > 0)
-                pv.asyncWrite(data).get(completion_timeout_secs, TimeUnit.SECONDS);
+                pv.setValueAsync(data).andThen(pv.onSingleValueEvent()).toFuture().get(completion_timeout_secs, TimeUnit.SECONDS);
             else
-                pv.write(data);
+                pv.setValue(data);
         }
         else
             throw new Exception("Cannot write type " + pv_type.getClass().getName());

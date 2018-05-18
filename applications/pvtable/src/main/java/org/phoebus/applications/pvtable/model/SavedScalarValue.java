@@ -67,29 +67,29 @@ public class SavedScalarValue extends SavedValue
     public void restore(final PV pv, long completion_timeout_secs) throws Exception
     {
         // Determine what type to write based on current value of the PV
-        final VType pv_type = pv.read();
+        final VType pv_type = pv.onSingleValueEvent().blockingGet();
 
         if ((pv_type instanceof VDouble) || (pv_type instanceof VFloat))
         {
             if (completion_timeout_secs > 0)
-                pv.asyncWrite(Double.parseDouble(saved_value)).get(completion_timeout_secs, TimeUnit.SECONDS);
+                pv.setValueAsync(Double.parseDouble(saved_value)).andThen(pv.onSingleValueEvent()).toFuture().get(completion_timeout_secs, TimeUnit.SECONDS);
             else
-                pv.write(Double.parseDouble(saved_value));
+                pv.setValue(Double.parseDouble(saved_value));
         }
         else if (pv_type instanceof VNumber  ||  pv_type instanceof VEnum)
         {
             if (completion_timeout_secs > 0)
-                pv.asyncWrite(getSavedNumber(saved_value).longValue()).get(completion_timeout_secs, TimeUnit.SECONDS);
+                pv.setValueAsync(getSavedNumber(saved_value).longValue()).andThen(pv.onSingleValueEvent()).toFuture().get(completion_timeout_secs, TimeUnit.SECONDS);
             else
-                pv.write(getSavedNumber(saved_value).longValue());
+                pv.setValue(getSavedNumber(saved_value).longValue());
         }
         else
         {
             // Write as text
             if (completion_timeout_secs > 0)
-                pv.asyncWrite(saved_value).get(completion_timeout_secs, TimeUnit.SECONDS);
+                pv.setValueAsync(saved_value).andThen(pv.onSingleValueEvent()).toFuture().get(completion_timeout_secs, TimeUnit.SECONDS);
             else
-                pv.write(saved_value);
+                pv.setValue(saved_value);
         }
     }
 

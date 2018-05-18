@@ -11,6 +11,11 @@ import java.util.List;
 import java.util.Random;
 
 import org.phoebus.pv.PV;
+import org.phoebus.vtype.VType;
+
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Flowable;
+import io.reactivex.processors.PublishProcessor;
 
 /** Simulated PV for gaussian noise
  *  @author Kay Kasemir, based on similar PV in diirt

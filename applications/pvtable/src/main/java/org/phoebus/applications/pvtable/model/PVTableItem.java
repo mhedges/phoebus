@@ -11,6 +11,7 @@ import static org.phoebus.applications.pvtable.PVTableApplication.logger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 
@@ -27,6 +28,9 @@ import org.phoebus.vtype.VNumberArray;
 import org.phoebus.vtype.VString;
 import org.phoebus.vtype.VType;
 import org.phoebus.vtype.ValueFactory;
+
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.disposables.Disposable;
 
 /** One item (row) in the PV table.
  *
@@ -61,61 +65,21 @@ public class PVTableItem
     private double tolerance;
 
     private volatile boolean use_completion = true;
+    
+    final private AtomicBoolean isReadonly = new AtomicBoolean();
 
     /** Primary PV */
     final private AtomicReference<PV> pv = new AtomicReference<PV>(null);
+    
+    final private AtomicReference<Disposable> value_flow = new AtomicReference<Disposable>(null);
+    final private AtomicReference<Disposable> access_flow = new AtomicReference<Disposable>(null);
+    final private AtomicReference<Disposable> connection_flow = new AtomicReference<Disposable>(null);
 
     /** Description PV */
     final private AtomicReference<PV> desc_pv = new AtomicReference<PV>(null);
-
-    /** Listener to primary PV */
-    final private PVListener pv_listener = new PVListener()
-    {
-        @Override
-        public void permissionsChanged(final PV pv, final boolean readonly)
-        {
-            listener.tableItemChanged(PVTableItem.this);
-        }
-
-        @Override
-        public void valueChanged(final PV pv, final VType value)
-        {
-            updateValue(value);
-        }
-
-        @Override
-        public void disconnected(final PV pv)
-        {
-            updateValue(ValueFactory.newVString(
-                    "Disconnected", ValueFactory
-                            .newAlarm(AlarmSeverity.UNDEFINED, "Disconnected"),
-                    ValueFactory.timeNow()));
-        }
-    };
-
-    /** Listener to description PV */
-    final private PVListener desc_pv_listener = new PVListener()
-    {
-        @Override
-        public void valueChanged(final PV pv, final VType value)
-        {
-            if (value instanceof VString)
-            {
-                desc_value = ((VString) value).getValue();
-            }
-            else
-            {
-                desc_value = "";
-            }
-            listener.tableItemChanged(PVTableItem.this);
-        }
-
-        @Override
-        public void disconnected(final PV pv)
-        {
-            desc_value = "";
-        }
-    };
+    
+    final private AtomicReference<Disposable> desc_value_flow = new AtomicReference<Disposable>(null);
+    final private AtomicReference<Disposable> desc_connection_flow = new AtomicReference<Disposable>(null);
 
     /** Initialize
      *
@@ -168,8 +132,25 @@ public class PVTableItem
                         ValueFactory.newAlarm(AlarmSeverity.UNDEFINED, "Not connected"),
                         ValueFactory.timeNow()));
             final PV new_pv = PVPool.getPV(name);
-            new_pv.addListener(pv_listener);
+            final Disposable new_value_flow = new_pv.onValueEvent(BackpressureStrategy.LATEST).subscribe(value->{
+            	updateValue(value);
+            });
+            final Disposable new_access_flow = new_pv.onAccessRightsEvent(BackpressureStrategy.LATEST).subscribe(readonly->{
+            	isReadonly.set(readonly); 
+            	listener.tableItemChanged(PVTableItem.this);
+            });
+            final Disposable new_conection_flow = new_pv.onConnectionEvent(BackpressureStrategy.LATEST).subscribe(connection->{
+            	if(connection==false) {
+            		updateValue(ValueFactory.newVString(
+                            "Disconnected", ValueFactory
+                                    .newAlarm(AlarmSeverity.UNDEFINED, "Disconnected"),
+                            ValueFactory.timeNow()));
+            	}
+            });
             pv.set(new_pv);
+            value_flow.set(new_value_flow);
+            access_flow.set(new_access_flow);
+            connection_flow.set(new_conection_flow);
         }
         catch (Exception ex)
         {
@@ -191,8 +172,25 @@ public class PVTableItem
             try
             {
                 final PV new_desc_pv = PVPool.getPV(desc_name);
-                new_desc_pv.addListener(desc_pv_listener);
+                final Disposable new_desc_value_flow = new_desc_pv.onValueEvent(BackpressureStrategy.LATEST).subscribe(value->{
+                	if (value instanceof VString)
+                    {
+                        desc_value = ((VString) value).getValue();
+                    }
+                    else
+                    {
+                        desc_value = "";
+                    }
+                    listener.tableItemChanged(PVTableItem.this);
+                });
+                final Disposable new_desc_connection_flow = new_desc_pv.onConnectionEvent(BackpressureStrategy.LATEST).subscribe(connection->{
+                	if(connection==false) {
+                		desc_value = "";
+                	}
+                });
                 desc_pv.set(new_desc_pv);
+                desc_value_flow.set(new_desc_value_flow);
+                desc_connection_flow.set(new_desc_connection_flow);
             }
             catch (Exception ex)
             {
@@ -284,7 +282,7 @@ public class PVTableItem
     public boolean isWritable()
     {
         final PV the_pv = pv.get();
-        return the_pv != null && the_pv.isReadonly() == false && !isComment();
+        return the_pv != null && isReadonly.get() == false && !isComment();
     }
 
     /** @return Await completion when restoring value to PV? */
@@ -309,7 +307,7 @@ public class PVTableItem
             if (the_pv == null)
                 throw new Exception("Not connected");
 
-            final VType pv_type = the_pv.read();
+            final VType pv_type = the_pv.onSingleValueEvent().blockingGet();
             if (pv_type instanceof VNumber)
             {
                 if (Settings.show_units)
@@ -318,7 +316,7 @@ public class PVTableItem
                     if (units.length() > 0  &&  new_value.endsWith(units))
                         new_value = new_value.substring(0, new_value.length() - units.length()).trim();
                 }
-                the_pv.write(Double.parseDouble(new_value));
+                the_pv.setValue(Double.parseDouble(new_value));
             }
             else if (pv_type instanceof VEnum)
             { // Value is displayed as "6 =
@@ -328,7 +326,7 @@ public class PVTableItem
                 final int index = end > 0
                         ? Integer.valueOf(new_value.substring(0, end))
                         : Integer.valueOf(new_value);
-                the_pv.write(index);
+                the_pv.setValue(index);
             }
             else if (pv_type instanceof VByteArray && Settings.treat_byte_array_as_string)
             {
@@ -337,7 +335,7 @@ public class PVTableItem
                 System.arraycopy(new_value.getBytes(), 0, bytes, 0,
                         new_value.length());
                 bytes[new_value.length()] = '\0';
-                the_pv.write(bytes);
+                the_pv.setValue(bytes);
             }
             else if (pv_type instanceof VNumberArray)
             {
@@ -346,7 +344,7 @@ public class PVTableItem
                 final double[] data = new double[N];
                 for (int i = 0; i < N; ++i)
                     data[i] = Double.parseDouble(elements[i]);
-                the_pv.write(data);
+                the_pv.setValue(data);
             }
             else if (pv_type instanceof VEnumArray)
             {
@@ -355,10 +353,10 @@ public class PVTableItem
                 final int[] data = new int[N];
                 for (int i = 0; i < N; ++i)
                     data[i] = (int) Double.parseDouble(elements[i]);
-                the_pv.write(data);
+                the_pv.setValue(data);
             }
             else // Write other types as string
-                the_pv.write(new_value);
+                the_pv.setValue(new_value);
         }
         catch (Throwable ex)
         {
@@ -483,16 +481,24 @@ public class PVTableItem
     public void dispose()
     {
         PV the_pv = pv.getAndSet(null);
-        if (the_pv != null)
+        Disposable the_value_flow = value_flow.getAndSet(null);
+        Disposable the_access_flow = access_flow.getAndSet(null);
+        Disposable the_connection_flow = connection_flow.getAndSet(null);
+        if (the_pv != null && the_value_flow !=null && the_access_flow != null && the_connection_flow != null)
         {
-            the_pv.removeListener(pv_listener);
+            the_value_flow.dispose();
+            the_access_flow.dispose();
+            the_connection_flow.dispose();
             PVPool.releasePV(the_pv);
         }
 
         the_pv = desc_pv.getAndSet(null);
+        Disposable the_desc_value_flow = desc_value_flow.getAndSet(null);
+        Disposable the_desc_connection_flow = desc_connection_flow.getAndSet(null);
         if (the_pv != null)
         {
-            the_pv.removeListener(pv_listener);
+            the_desc_value_flow.dispose();
+            the_desc_connection_flow.dispose();
             PVPool.releasePV(the_pv);
         }
     }

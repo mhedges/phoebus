@@ -43,7 +43,7 @@ public class SimPVTest extends ThreadHelper
     @Test
     public void demoRxSineBuffer() throws Exception
     {
-    	final PV pv = PVPool.getPV("ca://testpv");
+    	final PV pv = PVPool.getPV("sim://sine");
 		prepareLock(3);
 		prepareElapsedTime();
 

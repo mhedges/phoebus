@@ -9,6 +9,7 @@ package org.csstudio.display.builder.runtime.pv.vtype_pv;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.csstudio.display.builder.runtime.pv.RuntimePV;
 import org.csstudio.display.builder.runtime.pv.RuntimePVListener;
@@ -16,19 +17,40 @@ import org.phoebus.pv.PV;
 import org.phoebus.pv.PVListener;
 import org.phoebus.vtype.VType;
 
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Consumer;
+
 /** Implements {@link RuntimePV} for {@link PV}
  *  @author Kay Kasemir
  */
 @SuppressWarnings("nls")
-public class VTypePV implements RuntimePV, PVListener
+public class VTypePV implements RuntimePV, Consumer<VType>
 {
     private final PV pv;
     private final List<RuntimePVListener> listeners = new CopyOnWriteArrayList<>();
+	private final Disposable value_flow;
+	private final Disposable connection_flow;
+	private final Disposable access_flow;
+	private final AtomicBoolean isReadonly = new AtomicBoolean();
 
     VTypePV(final PV pv)
     {
         this.pv = pv;
-        pv.addListener(this);
+        value_flow = pv.onValueEvent(BackpressureStrategy.LATEST).subscribe(this);
+        connection_flow = pv.onConnectionEvent(BackpressureStrategy.LATEST).subscribe(connected -> {
+            for (RuntimePVListener listener : listeners) {
+                if (connected == false) {
+                	listener.disconnected(this);
+                }
+            }
+        });
+        access_flow = pv.onAccessRightsEvent(BackpressureStrategy.LATEST).subscribe(readonly -> {
+        	isReadonly.set(readonly);
+        	for (RuntimePVListener listener : listeners) {
+                listener.permissionsChanged(this, readonly);
+        	}
+        });
     }
 
     @Override
@@ -41,7 +63,7 @@ public class VTypePV implements RuntimePV, PVListener
     public void addListener(final RuntimePVListener listener)
     {
         // If there is a known value, perform initial update
-        final VType value = pv.read();
+        final VType value = pv.onSingleValueEvent().blockingGet();
         if (value != null)
             listener.valueChanged(this, value);
         listeners.add(listener);
@@ -56,13 +78,13 @@ public class VTypePV implements RuntimePV, PVListener
     @Override
     public VType read()
     {
-        return pv.read();
+        return pv.onSingleValueEvent().blockingGet();
     }
 
     @Override
     public boolean isReadonly()
     {
-        return pv.isReadonly();
+        return isReadonly.get();
     }
 
     @Override
@@ -70,33 +92,12 @@ public class VTypePV implements RuntimePV, PVListener
     {
         try
         {
-            pv.write(new_value);
+            pv.setValue(new_value);
         }
         catch (Exception ex)
         {
             throw new Exception("Cannot write " + new_value + " to PV " + getName(), ex);
         }
-    }
-
-    @Override
-    public void permissionsChanged(final PV pv, final boolean readonly)
-    {
-        for (RuntimePVListener listener : listeners)
-            listener.permissionsChanged(this, readonly);
-    }
-
-    @Override
-    public void valueChanged(final PV pv, final VType value)
-    {
-        for (RuntimePVListener listener : listeners)
-            listener.valueChanged(this, value);
-    }
-
-    @Override
-    public void disconnected(final PV pv)
-    {
-        for (RuntimePVListener listener : listeners)
-            listener.disconnected(this);
     }
 
     PV getPV()
@@ -106,7 +107,9 @@ public class VTypePV implements RuntimePV, PVListener
 
     void close()
     {
-        pv.removeListener(this);
+    	value_flow.dispose();
+    	connection_flow.dispose();
+    	access_flow.dispose();
     }
 
     @Override
@@ -114,4 +117,10 @@ public class VTypePV implements RuntimePV, PVListener
     {
         return getName();
     }
+
+	@Override
+	public void accept(VType value) throws Exception {
+		for (RuntimePVListener listener : listeners)
+            listener.valueChanged(this, value);
+	}
 }

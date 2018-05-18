@@ -27,6 +27,9 @@ import org.phoebus.pv.PV;
 import org.phoebus.vtype.VEnum;
 import org.phoebus.vtype.VType;
 
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Flowable;
+
 /** pvAccess {@link PV}
  *
  *  <p>Based on ideas from msekoranja org.epics.pvmanager.pva.PVAChannelHandler and PVATypeAdapter

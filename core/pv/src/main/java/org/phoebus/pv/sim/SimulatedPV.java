@@ -14,6 +14,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 import org.phoebus.pv.PV;
+import org.phoebus.vtype.VType;
+
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Completable;
+import io.reactivex.Flowable;
+import io.reactivex.Single;
 
 /** Base for simulated PVs
  *
@@ -38,8 +44,6 @@ abstract public class SimulatedPV extends PV
     {
         super(name);
 
-        // Simulated PVs are read-only
-        notifyListenersOfPermissions(true);
     }
 
     /** Start periodic updates
@@ -53,10 +57,25 @@ abstract public class SimulatedPV extends PV
 
     /** Prohibit write access */
     @Override
-    public void write(final Object new_value) throws Exception
+    public void setValue(Object object) throws Exception
     {
-        throw new Exception("Cannot write data of type" + new_value.getClass().getName());
+        throw new Exception("Cannot write data of type" + object.getClass().getName());
     }
+    
+	@Override
+	public Flowable<Boolean> onAccessRightsEvent(BackpressureStrategy backpressureStrategy) {
+		return Flowable.fromArray(true);
+	}
+
+	@Override
+	public Flowable<Boolean> onConnectionEvent(BackpressureStrategy backpressureStrategy) {
+		return Flowable.fromArray(true);
+	}
+
+	@Override
+	public Completable setValueAsync(Object object) {
+		return Completable.error(new Exception("Cannot write data of type" + object.getClass().getName()));
+	}
 
     /** Called by periodic timer */
     abstract protected void update();

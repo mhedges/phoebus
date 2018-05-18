@@ -39,23 +39,43 @@ public final class JCA_PV extends PV {
 	public Flowable<VType> onValueEvent(BackpressureStrategy backpressureStrategy) {
 		return Flowable.create(new ValueEventOnSubscribe(channel), backpressureStrategy);
 	}
-
-/*	public Completable setValue(Object value) {
-		return Completable.create(new SetValueOnSubscribe(channel, value));
-	}
 	
+	@Override
 	public Single<VType> onSingleValueEvent() {
 		return Single.create(new SingleValueEventOnSubscribe(channel));
 	}
 
 	@Override
+	public Completable setValueAsync(Object object) {
+		// TODO Auto-generated method stub
+		return null; //Completable.create(new SetValueOnSubscribe(channel, value));
+	}
+
+	@Override
+	public void setValue(Object object) throws Exception {
+		// TODO Auto-generated method stub
+		
+	}
+
+/*	public Completable setValue(Object value) {
+		//return Completable.create(new SetValueOnSubscribe(channel, value));
+		return null;
+	}
+	
+	public Single<VType> onSingleValueEvent() {
+		//return Single.create(new SingleValueEventOnSubscribe(channel));
+		return null;
+	}
+
+	@Override
 	public Completable setValueAsync(VType vType) {
-		return Completable.create(new SetValueOnSubscribe(channel, value));
+		//return Completable.create(new SetValueOnSubscribe(channel, value));
+		return null;
 	}
 
 	@Override
 	public void setValue(VType vType) {
-	    Completable.create(new SetValueOnSubscribe(channel, value));
+	    //Completable.create(new SetValueOnSubscribe(channel, value));
 	}*/
 	
 	public Flowable<Boolean> onAccessRightsEvent(BackpressureStrategy backpressureStrategy) {
@@ -71,5 +91,4 @@ public final class JCA_PV extends PV {
     protected void close() {
         channel.dispose();
     }
-
 }

@@ -81,7 +81,7 @@ public class DataBrowserWidgetRuntime  extends WidgetRuntime<DataBrowserWidget>
             {
                 try
                 {
-                    selection_pv.write(value);
+                    selection_pv.setValue(value);
                 }
                 catch (Exception ex)
                 {

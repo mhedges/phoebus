@@ -139,11 +139,13 @@ public class AlarmLoggingService {
 
         // Read list of Topics
         final List<String> topicNames = Arrays.asList(properties.getProperty("alarm_topics").split(","));
-        logger.info("Starting logger for '..State': " + topicNames);
+        logger.info("Starting logger for '..state and commands': " + topicNames);
 
         // Check all the topic index already exist.
         if (topicNames.stream().allMatch(topic -> {
-            return ElasticClientHelper.getInstance().indexExists(topic.toLowerCase() + "_alarms");
+            return ElasticClientHelper.getInstance().indexExists(topic.toLowerCase() + "_alarms")
+                    &&
+                   ElasticClientHelper.getInstance().indexExists(topic.toLowerCase() + "_alarms_cmd");
         })) {
             logger.info("found elastic indexes for all alarm topics");
         } else {
@@ -153,6 +155,7 @@ public class AlarmLoggingService {
         // Start a new stream consumer for each topic
         topicNames.forEach(topic -> {
             Scheduler.execute(new AlarmStateLogger(topic));
+            Scheduler.execute(new AlarmCommandLogger(topic));
         });
 
         // Wait in command shell until closed

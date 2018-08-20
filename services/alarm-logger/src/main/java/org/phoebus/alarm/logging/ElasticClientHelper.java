@@ -16,6 +16,7 @@ import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.index.IndexResponse;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestHighLevelClient;
+import org.phoebus.applications.alarm.messages.AlarmCommandMessage;
 import org.phoebus.applications.alarm.messages.AlarmStateMessage;
 
 /**
@@ -84,10 +85,33 @@ public class ElasticClientHelper {
         }
     }
 
+    /**
+     * Index an alarm state message
+     * @param indexName
+     * @param alarmStateMessage
+     * @return true is the document was successfully indexed
+     */
     public boolean indexAlarmStateDocument(String indexName, AlarmStateMessage alarmStateMessage) {
         IndexRequest indexRequest = new IndexRequest(indexName.toLowerCase(), "alarm");
         try {
             indexRequest.source(alarmStateMessage.sourceMap());
+            IndexResponse indexResponse = client.index(indexRequest);
+            return indexResponse.getResult().equals(Result.CREATED);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Index an alarm command message
+     * @param indexName
+     * @param alarmCommandMessage
+     * @return true if the document was successfully indexed
+     */
+    public boolean indexAlarmCommandDocument(String indexName, AlarmCommandMessage alarmCommandMessage) {
+        IndexRequest indexRequest = new IndexRequest(indexName.toLowerCase(), "alarm_cmd");
+        try {
+            indexRequest.source(alarmCommandMessage.sourceMap());
             IndexResponse indexResponse = client.index(indexRequest);
             return indexResponse.getResult().equals(Result.CREATED);
         } catch (IOException e) {
